@@ -10,8 +10,7 @@ from jinja2 import Template
 
 app = FastAPI(title="AI Content Generator API", version="1.5.0")
 
-# --- 1. Продвинутая база шаблонов (используем синтаксис Jinja2) ---
-# Это позволяет делать проверку: если атрибут пустой, текст про него не выводится.
+# --- 1. Продвинутая база шаблонов ---
 TEMPLATES_LIBRARY = {
     "bags": [
         "Сумка {{ name }} из материала {{ material }}. "
@@ -38,14 +37,15 @@ TEMPLATES_LIBRARY = {
     ]
 }
 
-
 # --- 2. Модели данных ---
 class GenerationRequest(BaseModel):
-    category: str = Field(
-        ...,
-        example="bags")
+    category: str = Field(..., example="bags")
     attributes: Dict[str, Any]
 
+class SaveRequest(BaseModel):
+    category: str
+    attributes: Dict[str, Any]
+    final_text: str
 
 class HistoryRecord(BaseModel):
     id: int
@@ -53,7 +53,6 @@ class HistoryRecord(BaseModel):
     input_data: str
     output_text: str
     created_at: str
-
 
 # --- 3. Инициализация БД (SQLite) ---
 def get_db():
@@ -79,52 +78,50 @@ def startup_db():
     conn.commit()
     conn.close()
 
-
 # --- 4. Сервисная логика (Синонимайзер) ---
 def apply_synonyms(text: str) -> str:
     intros = ["Новинка!", "Обратите внимание:", "Хит сезона!", "Рекомендуем:"]
     outros = ["Доступно к заказу.", "Успейте купить!", "Гарантия качества.", "Эксклюзивно."]
     return f"{random.choice(intros)} {text} {random.choice(outros)}"
 
-
 # --- 5. Эндпоинты API ---
-
 @app.post("/generate", response_description="Генерация текста на основе шаблонов")
-async def generate_text(request: GenerationRequest, db: sqlite3.Connection = Depends(get_db)):
+async def generate_text(request: GenerationRequest):
     if request.category not in TEMPLATES_LIBRARY:
         raise HTTPException(status_code=404, detail="Категория не найдена")
 
     try:
-        # 1. Выбор случайного шаблона
         raw_template = random.choice(TEMPLATES_LIBRARY[request.category])
-
-        # 2. Рендеринг через Jinja2 (усложнение для логики внутри текста)
         jinja_template = Template(raw_template)
         rendered_text = jinja_template.render(**request.attributes)
-
-        # 3. Применение синонимов
         final_text = apply_synonyms(rendered_text)
-
-        # 4. Сохранение в историю (Спринт 3)
-        cursor = db.cursor()
-        cursor.execute(
-            "INSERT INTO generation_history (category, input_data, output_text, created_at) VALUES (?, ?, ?, ?)",
-            (request.category, json.dumps(request.attributes, ensure_ascii=False), final_text,
-             datetime.now().isoformat())
-        )
-        db.commit()
 
         return {"status": "ok", "result": final_text}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка генерации: {str(e)}")
 
+@app.post("/save", response_description="Сохранение результата в базу")
+async def save_text(request: SaveRequest, db: sqlite3.Connection = Depends(get_db)):
+    try:
+        cursor = db.cursor()
+        cursor.execute(
+            "INSERT INTO generation_history (category, input_data, output_text, created_at) VALUES (?, ?, ?, ?)",
+            (request.category, json.dumps(request.attributes, ensure_ascii=False), request.final_text,
+             datetime.now().isoformat())
+        )
+        db.commit()
+        return {"status": "ok", "message": "Сохранено успешно"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка сохранения: {str(e)}")
 
 @app.get("/history", response_model=List[HistoryRecord])
 async def get_history(db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
+    # Убран LIMIT 50 для корректного подсчета всех записей
     cursor.execute(
-        "SELECT id, category, input_data, output_text, created_at FROM generation_history ORDER BY id DESC LIMIT 50")
+        "SELECT id, category, input_data, output_text, created_at FROM generation_history ORDER BY id DESC"
+    )
     rows = cursor.fetchall()
 
     return [
@@ -132,8 +129,6 @@ async def get_history(db: sqlite3.Connection = Depends(get_db)):
         for r in rows
     ]
 
-
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(app, host="127.0.0.1", port=8000)

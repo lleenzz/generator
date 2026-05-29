@@ -2,15 +2,16 @@ import streamlit as st
 import requests
 import pandas as pd
 from datetime import datetime
+import json
 
-# --- 1. Конфигурация и стили ---
+# --- 1. Конфигурация страницы ---
 st.set_page_config(
     page_title="Генерация описаний",
     layout="wide",
-    initial_sidebar_state="collapsed"  # Прячем боковую панель по умолчанию
+    menu_items=None
 )
 
-# Современный CSS с градиентами, тенями и анимациями
+# --- 2. Стили ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap');
@@ -19,11 +20,16 @@ st.markdown("""
         font-family: 'Inter', sans-serif;
     }
 
+    #MainMenu {visibility: hidden;}
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
+    [data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
+    .stDeployButton {display: none !important;}
+
     .main { 
         background-color: #f8fafc; 
     }
 
-    /* Стилизация заголовка градиентом */
     .gradient-text {
         background: linear-gradient(90deg, #4F46E5, #EC4899);
         -webkit-background-clip: text;
@@ -34,7 +40,6 @@ st.markdown("""
         padding-top: 1rem;
     }
 
-    /* Карточки-контейнеры */
     div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] {
         background: white;
         padding: 1.5rem;
@@ -43,7 +48,6 @@ st.markdown("""
         border: 1px solid #f1f5f9;
     }
 
-    /* Главная кнопка генерации */
     .stButton>button { 
         width: 100%; 
         border-radius: 8px; 
@@ -62,7 +66,6 @@ st.markdown("""
         color: white;
     }
 
-    /* Поля ввода */
     .stTextInput>div>div>input, .stTextArea>div>div>textarea, .stSelectbox>div>div>div {
         border-radius: 8px;
         border: 1px solid #e2e8f0;
@@ -73,7 +76,6 @@ st.markdown("""
         border-color: #4F46E5;
     }
 
-    /* Стилизация вкладок (Tabs) */
     .stTabs [data-baseweb="tab-list"] {
         gap: 2rem;
         border-bottom: 2px solid #f1f5f9;
@@ -97,21 +99,25 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. Инициализация состояния ---
+# --- 3. Инициализация состояния ---
 if 'generated_text' not in st.session_state:
     st.session_state.generated_text = ""
 if 'show_editor' not in st.session_state:
     st.session_state.show_editor = False
+if 'current_category' not in st.session_state:
+    st.session_state.current_category = ""
+if 'current_attrs' not in st.session_state:
+    st.session_state.current_attrs = {}
 
-# Заголовок приложения
+# Заголовок
 st.markdown('<h1 class="gradient-text">Генерация описаний</h1>', unsafe_allow_html=True)
 st.caption("Платформа интеллектуальной генерации контента")
 st.write("")
 
-# --- 3. Навигация через Tabs ---
+# --- 4. Навигация через Tabs ---
 tab_gen, tab_hist, tab_doc = st.tabs(["Генератор", "История и аналитика", "Документация"])
 
-# --- 4. Вкладка: ГЕНЕРАТОР ---
+# --- 5. Вкладка: ГЕНЕРАТОР ---
 with tab_gen:
     col1, col2 = st.columns([1, 1.2], gap="large")
 
@@ -125,7 +131,7 @@ with tab_gen:
         )
 
         attrs = {}
-        # Динамические поля сгруппированы визуально
+
         if category == "bags":
             attrs["name"] = st.text_input("Название модели", "Lady Dior Classic")
             col_a, col_b = st.columns(2)
@@ -158,7 +164,6 @@ with tab_gen:
 
         st.write("")
         if st.button("Сгенерировать описание"):
-            st.session_state.show_editor = False  # Скрываем старый редактор при новой генерации
             try:
                 with st.spinner('Нейросеть формирует продающий текст...'):
                     response = requests.post(
@@ -166,8 +171,10 @@ with tab_gen:
                         json={"category": category, "attributes": attrs}
                     )
                     if response.status_code == 200:
-                        st.session_state.generated_text = response.json()["result"]
+                        st.session_state.generated_text = response.json().get("result", "")
                         st.session_state.show_editor = True
+                        st.session_state.current_category = category
+                        st.session_state.current_attrs = attrs.copy()
                     else:
                         st.error("Ошибка API. Проверьте соединение с сервером.")
             except Exception as e:
@@ -176,13 +183,11 @@ with tab_gen:
     with col2:
         st.markdown("### Результат")
 
-        if not st.session_state.generated_text:
+        if not st.session_state.generated_text and not st.session_state.show_editor:
             st.info("Заполните характеристики слева и нажмите «Сгенерировать», чтобы получить готовое описание.")
 
         if st.session_state.show_editor:
             st.success("Успешно сгенерировано")
-
-            # Текст помещен в красивый контейнер, который можно развернуть для редактирования
             with st.expander("Редактировать результат", expanded=True):
                 final_text = st.text_area(
                     "Финальный текст",
@@ -190,12 +195,25 @@ with tab_gen:
                     height=250,
                     label_visibility="collapsed"
                 )
-                if st.button("Сохранить в базу", key="save_btn"):
-                    st.toast("Изменения успешно сохранены")
 
-# --- 5. Вкладка: ИСТОРИЯ ---
+                if st.button("Сохранить в базу", key="save_btn"):
+                    try:
+                        save_payload = {
+                            "category": st.session_state.current_category,
+                            "attributes": st.session_state.current_attrs,
+                            "final_text": final_text
+                        }
+                        res = requests.post("http://127.0.0.1:8000/save", json=save_payload)
+                        if res.status_code == 200:
+                            st.success("Описание успешно сохранено в базу данных!")
+                        else:
+                            st.error("Ошибка при сохранении.")
+                    except Exception as e:
+                        st.error(f"Ошибка соединения: {e}")
+
+# --- 6. Вкладка: ИСТОРИЯ ---
 with tab_hist:
-    st.markdown("### Архив генераций")
+    st.markdown("### Аналитика и архив")
 
     try:
         res = requests.get("http://127.0.0.1:8000/history")
@@ -204,20 +222,59 @@ with tab_hist:
             if history_data:
                 df = pd.DataFrame(history_data)
                 df.columns = ["ID", "Категория", "Входные данные", "Текст", "Дата"]
-                st.dataframe(df, use_container_width=True, hide_index=True)
 
+                df["Дата"] = pd.to_datetime(df["Дата"]).dt.strftime('%d.%m.%Y %H:%M')
+
+
+                def format_input_data(data_str):
+                    try:
+                        data_dict = json.loads(data_str) if isinstance(data_str, str) else data_str
+                        return " • ".join([str(v) for k, v in data_dict.items() if v])
+                    except:
+                        return data_str
+
+
+                df["Входные данные"] = df["Входные данные"].apply(format_input_data)
+
+                col_m1, col_m2, col_m3 = st.columns(3)
+                col_m1.metric("Сохранено в базу", len(df))
+
+                top_category = df["Категория"].mode()[0] if not df.empty else "-"
+                cat_names = {"bags": "Сумки", "bouquets": "Букеты", "jewelry": "Ювелирка"}
+                col_m2.metric("Частая категория", cat_names.get(top_category, top_category))
+
+                last_gen = df["Дата"].iloc[0] if not df.empty else "-"
+                col_m3.metric("Последняя активность", last_gen)
+
+                st.write("")
+
+                st.dataframe(
+                    df,
+                    use_container_width=True,
+                    hide_index=True,
+                    height=400,
+                    column_config={
+                        "ID": st.column_config.TextColumn("ID", width="small"),
+                        "Категория": st.column_config.TextColumn("Категория", width="small"),
+                        "Входные данные": st.column_config.TextColumn("Характеристики", width="medium"),
+                        "Текст": st.column_config.TextColumn("Сгенерированный текст", width="large"),
+                        "Дата": st.column_config.TextColumn("Дата", width="small"),
+                    }
+                )
+
+                st.write("")
                 st.download_button(
-                    "Скачать CSV",
+                    "Скачать архив (CSV)",
                     df.to_csv(index=False).encode('utf-8'),
                     "history_export.csv",
                     "text/csv"
                 )
             else:
-                st.info("В базе данных пока нет записей.")
-    except:
-        st.error("Не удалось загрузить историю. Убедитесь, что backend-сервер запущен.")
+                st.info("В базе данных пока нет сохраненных записей.")
+    except Exception as e:
+        st.warning(f"Не удалось загрузить историю. Убедитесь, что бэкенд-сервер запущен. Ошибка: {e}")
 
-# --- 6. Вкладка: ДОКУМЕНТАЦИЯ ---
+# --- 7. Вкладка: ДОКУМЕНТАЦИЯ ---
 with tab_doc:
     st.markdown("### Техническая документация")
 
@@ -225,7 +282,7 @@ with tab_doc:
     #### Архитектура проекта
     * **Backend:** FastAPI + Jinja2 (система шаблонов)
     * **Database:** SQLite (локальное хранилище данных)
-    * **Frontend:** Streamlit с кастомным CSS
+    * **Frontend:** Streamlit с кастомным CSS (режим "чистого приложения")
 
     #### Инструкция по масштабированию
     Для интеграции новых товарных матриц обновите словарь `TEMPLATES_LIBRARY` на стороне FastAPI. Фронтенд автоматически подхватит новые категории без необходимости переписывать UI-компоненты.
