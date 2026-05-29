@@ -20,11 +20,25 @@ st.markdown("""
         font-family: 'Inter', sans-serif;
     }
 
+    /* СКРЫТИЕ СТАНДАРТНОГО ИНТЕРФЕЙСА STREAMLIT */
     #MainMenu {visibility: hidden;}
     header {visibility: hidden;}
     footer {visibility: hidden;}
     [data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
     .stDeployButton {display: none !important;}
+
+    /* ЖЕСТКОЕ СКРЫТИЕ ИКОНКИ-ЦЕПОЧКИ (ЯКОРЯ) */
+    h1 a, h2 a, h3 a, h4 a, h5 a, h6 a,
+    .stMarkdown a.header-anchor,
+    a.header-anchor,
+    svg.octicon-link {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        width: 0 !important;
+        height: 0 !important;
+    }
 
     .main { 
         background-color: #f8fafc; 
