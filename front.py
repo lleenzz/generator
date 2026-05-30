@@ -6,7 +6,7 @@ import json
 
 # --- 1. Конфигурация страницы ---
 st.set_page_config(
-    page_title="Генерация описаний",
+    page_title="Генерация описаний товаров",
     layout="wide",
     menu_items=None
 )
@@ -124,7 +124,7 @@ if 'current_attrs' not in st.session_state:
     st.session_state.current_attrs = {}
 
 # Заголовок
-st.markdown('<h1 class="gradient-text">Генерация описаний</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="gradient-text">Генерация описаний товаров</h1>', unsafe_allow_html=True)
 st.caption("Платформа интеллектуальной генерации контента")
 st.write("")
 
